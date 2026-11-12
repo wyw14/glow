@@ -1,10 +1,142 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 
 	"charm.land/lipgloss/v2"
 )
+
+// Hex values reused by several palette entries.
+const (
+	defaultGreenHex = "#04B575"
+	defaultLogoHex  = "#ECFD65"
+)
+
+// Palette keys understood by the style config. Every key is required.
+const (
+	colorNormalDim         = "normalDim"
+	colorGray              = "gray"
+	colorMidGray           = "midGray"
+	colorDarkGray          = "darkGray"
+	colorBrightGray        = "brightGray"
+	colorDimBrightGray     = "dimBrightGray"
+	colorCream             = "cream"
+	colorYellowGreen       = "yellowGreen"
+	colorFuchsia           = "fuchsia"
+	colorDimFuchsia        = "dimFuchsia"
+	colorDullFuchsia       = "dullFuchsia"
+	colorDimDullFuchsia    = "dimDullFuchsia"
+	colorGreen             = "green"
+	colorRed               = "red"
+	colorSemiDimGreen      = "semiDimGreen"
+	colorDimGreen          = "dimGreen"
+	colorMintGreen         = "mintGreen"
+	colorDarkGreen         = "darkGreen"
+	colorLineNumberFg      = "lineNumberFg"
+	colorStatusBarNoteFg   = "statusBarNoteFg"
+	colorStatusBarBg       = "statusBarBg"
+	colorStatusBarScrollFg = "statusBarScrollPosFg"
+	colorTab               = "tab"
+	colorSelectedTab       = "selectedTab"
+	colorSubtle            = "subtle"
+	colorStatusBarHelpBg   = "statusBarHelpBg"
+	colorMessageHelpFg     = "messageHelpFg"
+	colorHelpBg            = "helpBg"
+	colorLogoFg            = "logoFg"
+)
+
+// paletteKeys is the complete set of required palette entries, in validation
+// order.
+var paletteKeys = []string{
+	colorNormalDim,
+	colorGray,
+	colorMidGray,
+	colorDarkGray,
+	colorBrightGray,
+	colorDimBrightGray,
+	colorCream,
+	colorYellowGreen,
+	colorFuchsia,
+	colorDimFuchsia,
+	colorDullFuchsia,
+	colorDimDullFuchsia,
+	colorGreen,
+	colorRed,
+	colorSemiDimGreen,
+	colorDimGreen,
+	colorMintGreen,
+	colorDarkGreen,
+	colorLineNumberFg,
+	colorStatusBarNoteFg,
+	colorStatusBarBg,
+	colorStatusBarScrollFg,
+	colorTab,
+	colorSelectedTab,
+	colorSubtle,
+	colorStatusBarHelpBg,
+	colorMessageHelpFg,
+	colorHelpBg,
+	colorLogoFg,
+}
+
+// AdaptiveColor is a light/dark color pair. The active value is resolved from
+// the terminal's background color.
+type AdaptiveColor struct {
+	Light string `json:"light"`
+	Dark  string `json:"dark"`
+}
+
+// StyleConfig is the declarative palette from which Styles are built. It is
+// the input to a style hot-reload transaction.
+type StyleConfig struct {
+	Colors map[string]AdaptiveColor `json:"colors"`
+}
+
+// color returns the adaptive color registered under key.
+func (c StyleConfig) color(key string) (AdaptiveColor, error) {
+	ac, ok := c.Colors[key]
+	if !ok {
+		return AdaptiveColor{}, fmt.Errorf("style config: missing required color %q", key)
+	}
+	return ac, nil
+}
+
+// DefaultStyleConfig returns the built-in palette. A fresh map is returned so
+// callers can mutate the config without affecting other sessions.
+func DefaultStyleConfig() StyleConfig {
+	return StyleConfig{Colors: map[string]AdaptiveColor{
+		colorNormalDim:         {Light: "#A49FA5", Dark: "#777777"},
+		colorGray:              {Light: "#909090", Dark: "#626262"},
+		colorMidGray:           {Light: "#B2B2B2", Dark: "#4A4A4A"},
+		colorDarkGray:          {Light: "#DDDADA", Dark: "#3C3C3C"},
+		colorBrightGray:        {Light: "#847A85", Dark: "#979797"},
+		colorDimBrightGray:     {Light: "#C2B8C2", Dark: "#4D4D4D"},
+		colorCream:             {Light: "#FFFDF5", Dark: "#FFFDF5"},
+		colorYellowGreen:       {Light: defaultGreenHex, Dark: defaultLogoHex},
+		colorFuchsia:           {Light: "#EE6FF8", Dark: "#EE6FF8"},
+		colorDimFuchsia:        {Light: "#F1A8FF", Dark: "#99519E"},
+		colorDullFuchsia:       {Light: "#F793FF", Dark: "#AD58B4"},
+		colorDimDullFuchsia:    {Light: "#F6C9FF", Dark: "#7B4380"},
+		colorGreen:             {Light: defaultGreenHex, Dark: defaultGreenHex},
+		colorRed:               {Light: "#FF4672", Dark: "#ED567A"},
+		colorSemiDimGreen:      {Light: "#35D79C", Dark: "#036B46"},
+		colorDimGreen:          {Light: "#72D2B0", Dark: "#0B5137"},
+		colorMintGreen:         {Light: "#89F0CB", Dark: "#89F0CB"},
+		colorDarkGreen:         {Light: "#1C8760", Dark: "#1C8760"},
+		colorLineNumberFg:      {Light: "#656565", Dark: "#7D7D7D"},
+		colorStatusBarNoteFg:   {Light: "#656565", Dark: "#7D7D7D"},
+		colorStatusBarBg:       {Light: "#E6E6E6", Dark: "#242424"},
+		colorStatusBarScrollFg: {Light: "#949494", Dark: "#5A5A5A"},
+		colorTab:               {Light: "#909090", Dark: "#626262"},
+		colorSelectedTab:       {Light: "#333333", Dark: "#979797"},
+		colorSubtle:            {Light: "#9B9B9B", Dark: "#5C5C5C"},
+		colorStatusBarHelpBg:   {Light: "#DCDCDC", Dark: "#323232"},
+		colorMessageHelpFg:     {Light: "#B6FFE4", Dark: "#B6FFE4"},
+		colorHelpBg:            {Light: "#f2f2f2", Dark: "#1B1B1B"},
+		colorLogoFg:            {Light: defaultLogoHex, Dark: defaultLogoHex},
+	}}
+}
 
 // Styles contains all styles used in the UI. They are resolved from light and
 // dark color variants according to the terminal's background color, which
@@ -52,34 +184,118 @@ type Styles struct {
 	stashInputPromptStyle lipgloss.Style
 }
 
-// newStyles builds all styles for the given terminal background.
+// newStyles builds all styles for the given terminal background from the
+// built-in default palette.
 func newStyles(isDark bool) Styles {
+	s, err := buildStyles(DefaultStyleConfig(), isDark)
+	if err != nil {
+		// The compiled-in default palette contains every required key.
+		panic(fmt.Sprintf("ui: invalid default style config: %v", err))
+	}
+	return s
+}
+
+// buildStyles resolves the full Styles set from a validated config. Building
+// is performed off the active snapshot so a failed reload never mutates the
+// styles currently in use.
+func buildStyles(cfg StyleConfig, isDark bool) (Styles, error) {
 	s := Styles{lightDark: lipgloss.LightDark(isDark)}
 
+	resolve := func(key string) (color.Color, error) {
+		ac, err := cfg.color(key)
+		if err != nil {
+			return nil, err
+		}
+		return s.lightDark(lipgloss.Color(ac.Light), lipgloss.Color(ac.Dark)), nil
+	}
+
 	// Colors
-	normalDim := s.adaptive("#A49FA5", "#777777")
-	gray := s.adaptive("#909090", "#626262")
-	midGray := s.adaptive("#B2B2B2", "#4A4A4A")
-	darkGray := s.adaptive("#DDDADA", "#3C3C3C")
-	brightGray := s.adaptive("#847A85", "#979797")
-	dimBrightGray := s.adaptive("#C2B8C2", "#4D4D4D")
-	cream := s.adaptive("#FFFDF5", "#FFFDF5")
-	yellowGreen := s.adaptive("#04B575", "#ECFD65")
-	s.fuchsia = s.adaptive("#EE6FF8", "#EE6FF8")
-	dimFuchsia := s.adaptive("#F1A8FF", "#99519E")
-	dullFuchsia := s.adaptive("#F793FF", "#AD58B4")
-	dimDullFuchsia := s.adaptive("#F6C9FF", "#7B4380")
-	green := lipgloss.Color("#04B575")
-	red := s.adaptive("#FF4672", "#ED567A")
-	semiDimGreen := s.adaptive("#35D79C", "#036B46")
-	dimGreen := s.adaptive("#72D2B0", "#0B5137")
+	normalDim, err := resolve(colorNormalDim)
+	if err != nil {
+		return Styles{}, err
+	}
+	gray, err := resolve(colorGray)
+	if err != nil {
+		return Styles{}, err
+	}
+	midGray, err := resolve(colorMidGray)
+	if err != nil {
+		return Styles{}, err
+	}
+	darkGray, err := resolve(colorDarkGray)
+	if err != nil {
+		return Styles{}, err
+	}
+	brightGray, err := resolve(colorBrightGray)
+	if err != nil {
+		return Styles{}, err
+	}
+	dimBrightGray, err := resolve(colorDimBrightGray)
+	if err != nil {
+		return Styles{}, err
+	}
+	cream, err := resolve(colorCream)
+	if err != nil {
+		return Styles{}, err
+	}
+	yellowGreen, err := resolve(colorYellowGreen)
+	if err != nil {
+		return Styles{}, err
+	}
+	s.fuchsia, err = resolve(colorFuchsia)
+	if err != nil {
+		return Styles{}, err
+	}
+	dimFuchsia, err := resolve(colorDimFuchsia)
+	if err != nil {
+		return Styles{}, err
+	}
+	dullFuchsia, err := resolve(colorDullFuchsia)
+	if err != nil {
+		return Styles{}, err
+	}
+	dimDullFuchsia, err := resolve(colorDimDullFuchsia)
+	if err != nil {
+		return Styles{}, err
+	}
+	green, err := resolve(colorGreen)
+	if err != nil {
+		return Styles{}, err
+	}
+	red, err := resolve(colorRed)
+	if err != nil {
+		return Styles{}, err
+	}
+	semiDimGreen, err := resolve(colorSemiDimGreen)
+	if err != nil {
+		return Styles{}, err
+	}
+	dimGreen, err := resolve(colorDimGreen)
+	if err != nil {
+		return Styles{}, err
+	}
 
 	// Pager colors
-	mintGreen := s.adaptive("#89F0CB", "#89F0CB")
-	darkGreen := s.adaptive("#1C8760", "#1C8760")
-	lineNumberFg := s.adaptive("#656565", "#7D7D7D")
-	statusBarNoteFg := s.adaptive("#656565", "#7D7D7D")
-	statusBarBg := s.adaptive("#E6E6E6", "#242424")
+	mintGreen, err := resolve(colorMintGreen)
+	if err != nil {
+		return Styles{}, err
+	}
+	darkGreen, err := resolve(colorDarkGreen)
+	if err != nil {
+		return Styles{}, err
+	}
+	lineNumberFg, err := resolve(colorLineNumberFg)
+	if err != nil {
+		return Styles{}, err
+	}
+	statusBarNoteFg, err := resolve(colorStatusBarNoteFg)
+	if err != nil {
+		return Styles{}, err
+	}
+	statusBarBg, err := resolve(colorStatusBarBg)
+	if err != nil {
+		return Styles{}, err
+	}
 
 	// Render-func styles
 	s.dimNormalFg = lipgloss.NewStyle().Foreground(normalDim).Render
@@ -98,15 +314,44 @@ func newStyles(isDark bool) Styles {
 	s.redFg = lipgloss.NewStyle().Foreground(red).Render
 
 	// Named styles
-	s.tabStyle = lipgloss.NewStyle().Foreground(s.adaptive("#909090", "#626262"))
-	s.selectedTabStyle = lipgloss.NewStyle().Foreground(s.adaptive("#333333", "#979797"))
+	tabFg, err := resolve(colorTab)
+	if err != nil {
+		return Styles{}, err
+	}
+	selectedTabFg, err := resolve(colorSelectedTab)
+	if err != nil {
+		return Styles{}, err
+	}
+	subtleFg, err := resolve(colorSubtle)
+	if err != nil {
+		return Styles{}, err
+	}
+	s.tabStyle = lipgloss.NewStyle().Foreground(tabFg)
+	s.selectedTabStyle = lipgloss.NewStyle().Foreground(selectedTabFg)
 	s.errorTitleStyle = lipgloss.NewStyle().Foreground(cream).Background(red).Padding(0, 1)
-	s.subtleStyle = lipgloss.NewStyle().Foreground(s.adaptive("#9B9B9B", "#5C5C5C"))
+	s.subtleStyle = lipgloss.NewStyle().Foreground(subtleFg)
 	s.paginationStyle = s.subtleStyle
 
 	// Pager styles
+	statusBarScrollFg, err := resolve(colorStatusBarScrollFg)
+	if err != nil {
+		return Styles{}, err
+	}
+	statusBarHelpBg, err := resolve(colorStatusBarHelpBg)
+	if err != nil {
+		return Styles{}, err
+	}
+	messageHelpFg, err := resolve(colorMessageHelpFg)
+	if err != nil {
+		return Styles{}, err
+	}
+	helpBg, err := resolve(colorHelpBg)
+	if err != nil {
+		return Styles{}, err
+	}
+
 	s.statusBarScrollPosStyle = lipgloss.NewStyle().
-		Foreground(s.adaptive("#949494", "#5A5A5A")).
+		Foreground(statusBarScrollFg).
 		Background(statusBarBg).
 		Render
 
@@ -117,7 +362,7 @@ func newStyles(isDark bool) Styles {
 
 	s.statusBarHelpStyle = lipgloss.NewStyle().
 		Foreground(statusBarNoteFg).
-		Background(s.adaptive("#DCDCDC", "#323232")).
+		Background(statusBarHelpBg).
 		Render
 
 	s.statusBarMessageStyle = lipgloss.NewStyle().
@@ -131,13 +376,13 @@ func newStyles(isDark bool) Styles {
 		Render
 
 	s.statusBarMessageHelpStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#B6FFE4")).
+		Foreground(messageHelpFg).
 		Background(green).
 		Render
 
 	s.helpViewStyle = lipgloss.NewStyle().
 		Foreground(statusBarNoteFg).
-		Background(s.adaptive("#f2f2f2", "#1B1B1B")).
+		Background(helpBg).
 		Render
 
 	s.lineNumberStyle = lipgloss.NewStyle().
@@ -148,8 +393,12 @@ func newStyles(isDark bool) Styles {
 	s.dividerDot = s.darkGrayFg.SetString(" • ")
 	s.dividerBar = s.darkGrayFg.SetString(" │ ")
 
+	logoFg, err := resolve(colorLogoFg)
+	if err != nil {
+		return Styles{}, err
+	}
 	s.logoStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ECFD65")).
+		Foreground(logoFg).
 		Background(s.fuchsia).
 		Bold(true)
 
@@ -159,10 +408,62 @@ func newStyles(isDark bool) Styles {
 		Foreground(yellowGreen).
 		MarginRight(1)
 
-	return s
+	return s, nil
 }
 
 // adaptive returns a color appropriate for the current terminal background.
 func (s Styles) adaptive(light, dark string) color.Color {
 	return s.lightDark(lipgloss.Color(light), lipgloss.Color(dark))
+}
+
+// smokeRender exercises every resolved style so a broken configuration fails
+// the transaction before it is published rather than panicking mid-frame.
+func (s Styles) smokeRender() error {
+	renderFuncs := []func(...string) string{
+		s.dimNormalFg,
+		s.brightGrayFg,
+		s.dimBrightGrayFg,
+		s.grayFg,
+		s.midGrayFg,
+		s.greenFg,
+		s.semiDimGreenFg,
+		s.dimGreenFg,
+		s.fuchsiaFg,
+		s.dimFuchsiaFg,
+		s.dullFuchsiaFg,
+		s.dimDullFuchsiaFg,
+		s.redFg,
+		s.statusBarScrollPosStyle,
+		s.statusBarNoteStyle,
+		s.statusBarHelpStyle,
+		s.statusBarMessageStyle,
+		s.statusBarMessageScrollPosStyle,
+		s.statusBarMessageHelpStyle,
+		s.helpViewStyle,
+		s.lineNumberStyle,
+	}
+	for i, f := range renderFuncs {
+		if f == nil {
+			return fmt.Errorf("style config: render function %d was not initialized", i)
+		}
+		_ = f("g")
+	}
+
+	namedStyles := []lipgloss.Style{
+		s.darkGrayFg,
+		s.tabStyle,
+		s.selectedTabStyle,
+		s.errorTitleStyle,
+		s.subtleStyle,
+		s.paginationStyle,
+		s.dividerDot,
+		s.dividerBar,
+		s.logoStyle,
+		s.stashSpinnerStyle,
+		s.stashInputPromptStyle,
+	}
+	for _, st := range namedStyles {
+		_ = st.Render("g")
+	}
+	return nil
 }

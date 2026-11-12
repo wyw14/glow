@@ -32,7 +32,10 @@ func NewProgram(cfg Config, content string) (*tea.Program, func()) {
 		cfg.GlamourEnabled,
 	)
 
-	m := newModel(cfg, content)
+	m := newModel(cfg, content).(model)
+	// Closing the style manager cancels in-flight reloads and waits for their
+	// goroutines to exit when the session ends.
+	closeStyles := func() { _ = m.common.styleMgr.Close() }
 
 	if utils.TextSizingEnabled() {
 		if tty, state, err := openRawTerminal(); err == nil {
@@ -43,16 +46,42 @@ func NewProgram(cfg Config, content string) (*tea.Program, func()) {
 				tea.WithInput(tty),
 			)
 			painter.watchResize(prog)
-			return prog, painter.stop
+			return prog, func() {
+				painter.stop()
+				closeStyles()
+			}
 		}
 	}
 
-	return tea.NewProgram(m), func() {}
+	return tea.NewProgram(m), closeStyles
 }
 
 type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
+
+// stylesCommittedMsg delivers a successfully built style snapshot to the
+// update loop. The cached styles are swapped once while handling this
+// message, which is the single render boundary at which a hot reload takes
+// effect.
+type stylesCommittedMsg struct {
+	snap *StyleSnapshot
+}
+
+// stylesReloadFailedMsg reports a background style transaction that failed
+// validation. The active snapshot stays in place.
+type stylesReloadFailedMsg struct {
+	err error
+}
+
+// StyleReloadRequestMsg requests a style hot reload from JSON configuration
+// data. Send it to the tea program to start a background transaction: the new
+// configuration is parsed and fully validated off the update loop and takes
+// effect at a single render boundary on success, while failure leaves the
+// active styles untouched.
+type StyleReloadRequestMsg struct {
+	Data []byte
+}
 
 type (
 	initLocalFileSearchMsg struct {
@@ -97,7 +126,24 @@ type commonModel struct {
 	cwd    string
 	width  int
 	height int
+	// styles is the render-boundary cache consumed by View calls on the main
+	// update goroutine. It is only swapped while handling a style message.
 	styles Styles
+	// styleMgr owns the versioned snapshots and runs background reload
+	// transactions. Goroutines doing render work must read from it via
+	// activeStyles so they observe a single immutable version.
+	styleMgr *StyleManager
+}
+
+// activeStyles returns the styles of the current version snapshot, falling
+// back to the cached styles when no manager is wired up. Callers running
+// outside the update loop must retain the returned Styles for the whole
+// render instead of re-reading them halfway through.
+func (c *commonModel) activeStyles() Styles {
+	if c.styleMgr != nil {
+		return c.styleMgr.Snapshot().Styles
+	}
+	return c.styles
 }
 
 type model struct {
@@ -130,9 +176,11 @@ func (m *model) unloadDocument() []tea.Cmd {
 }
 
 func newModel(cfg Config, content string) tea.Model {
+	styleMgr := NewDefaultStyleManager(true)
 	common := commonModel{
-		cfg:    cfg,
-		styles: newStyles(true),
+		cfg:      cfg,
+		styles:   styleMgr.Snapshot().Styles,
+		styleMgr: styleMgr,
 	}
 
 	m := model{
@@ -205,8 +253,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
-		m.common.styles = newStyles(msg.IsDark())
+		// Rebuild from the committed palette and swap atomically, keeping
+		// the same single-commit path as a style hot reload.
+		if m.common.styleMgr == nil {
+			m.common.styles = newStyles(msg.IsDark())
+		} else {
+			outcome := m.common.styleMgr.SetDark(msg.IsDark())
+			if outcome.Err != nil {
+				log.Error("failed to switch style theme", "error", outcome.Err)
+				break
+			}
+			m.common.styles = m.common.styleMgr.Snapshot().Styles
+		}
 		m.stash.stylePaginators(m.common.styles)
+
+	case stylesCommittedMsg:
+		// Single render boundary: the cached styles are replaced once here,
+		// so the next View renders entirely from the new snapshot while all
+		// previous frames kept using the old one.
+		m.common.styles = msg.snap.Styles
+		m.stash.stylePaginators(m.common.styles)
+
+	case stylesReloadFailedMsg:
+		// Validation failed: leave the active snapshot and cached styles
+		// untouched.
+		log.Error("style hot reload failed; keeping previous styles", "error", msg.err)
+
+	case StyleReloadRequestMsg:
+		cmds = append(cmds, reloadStylesCmd(m.common, msg.Data))
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "esc":
@@ -415,6 +490,27 @@ func waitForStatusMessageTimeout(appCtx applicationContext, t *time.Timer) tea.C
 	return func() tea.Msg {
 		<-t.C
 		return statusMessageTimeoutMsg(appCtx)
+	}
+}
+
+// reloadStylesCmd starts a background style transaction over the given JSON
+// style configuration. Parsing and full validation happen off the update
+// loop; on success a stylesCommittedMsg swaps styles at one render boundary,
+// on failure a stylesReloadFailedMsg is delivered and the active styles stay
+// untouched.
+func reloadStylesCmd(common *commonModel, data []byte) tea.Cmd {
+	if common.styleMgr == nil {
+		return func() tea.Msg {
+			return stylesReloadFailedMsg{err: ErrStyleManagerClosed}
+		}
+	}
+	outcomes := common.styleMgr.Reload(data)
+	return func() tea.Msg {
+		outcome := <-outcomes
+		if outcome.Err != nil {
+			return stylesReloadFailedMsg{err: outcome.Err}
+		}
+		return stylesCommittedMsg{snap: common.styleMgr.Snapshot()}
 	}
 }
 

@@ -8,15 +8,17 @@ import (
 func TestGlamourRenderTextSizing(t *testing.T) {
 	t.Setenv("GLOW_TEXT_SIZING", "on")
 
+	styleMgr := NewDefaultStyleManager(true)
 	common := &commonModel{
 		cfg: Config{
 			GlamourEnabled:  true,
 			GlamourStyle:    "dark",
 			GlamourMaxWidth: 80,
 		},
-		styles: newStyles(true),
-		width:  80,
-		height: 24,
+		styles:   styleMgr.Snapshot().Styles,
+		styleMgr: styleMgr,
+		width:    80,
+		height:   24,
 	}
 	m := newPagerModel(common)
 	m.currentDocument = markdown{Note: "test.md"}

@@ -352,6 +352,10 @@ func renderWithGlamour(m pagerModel, md string) tea.Cmd {
 
 // This is where the magic happens.
 func glamourRender(m pagerModel, markdown string) (string, error) {
+	// This runs on a render goroutine: pin one immutable version snapshot for
+	// the whole render so a concurrent hot reload can never mix styles from
+	// two versions within a single frame.
+	styles := m.common.activeStyles()
 	trunc := lipgloss.NewStyle().MaxWidth(m.viewport.Width() - lineNumberWidth).Render
 
 	if !m.common.cfg.GlamourEnabled {
@@ -398,7 +402,7 @@ func glamourRender(m pagerModel, markdown string) (string, error) {
 	var content strings.Builder
 	for i, s := range lines {
 		if isCode || m.common.cfg.ShowLineNumbers {
-			content.WriteString(m.common.styles.lineNumberStyle(fmt.Sprintf("%"+fmt.Sprint(lineNumberWidth)+"d", i+1)))
+			content.WriteString(styles.lineNumberStyle(fmt.Sprintf("%"+fmt.Sprint(lineNumberWidth)+"d", i+1)))
 			content.WriteString(trunc(s))
 		} else {
 			content.WriteString(s)
