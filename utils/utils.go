@@ -12,6 +12,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
+	"charm.land/glow/v3/styleplan"
 	"charm.land/lipgloss/v2"
 	"github.com/mitchellh/go-homedir"
 )
@@ -88,40 +89,70 @@ func GlamourStyle(style string, isCode bool) glamour.TermRendererOption {
 	}
 }
 
-func styleConfigFor(style string, isCode bool) (ansi.StyleConfig, error) {
-	if !isCode {
-		if style == "auto" {
-			style = styles.DarkStyle
+// GlamourStyleWithPlan returns a glamour.TermRendererOption that honors the
+// immutable rendering strategy planned from the detected terminal
+// capabilities. Planning never writes to the terminal or changes the user
+// theme; degradations are applied to a caller owned style config copy.
+func GlamourStyleWithPlan(style string, isCode bool, plan *styleplan.Strategy) glamour.TermRendererOption {
+	return func(tr *glamour.TermRenderer) error {
+		theme := style
+		if plan != nil && plan.ResolvedTheme() != "" {
+			theme = plan.ResolvedTheme()
 		}
-		if cfg, ok := styles.DefaultStyles[style]; ok {
-			return *cfg, nil
-		}
-		return styleConfigFromFile(style)
-	}
 
-	// If we are rendering a pure code block, we need to modify the style to
-	// remove the indentation.
-	switch style {
-	case "auto":
+		styleConfig, err := resolveStyleConfig(theme, isCode)
+		if err != nil {
+			return err
+		}
+		if plan != nil {
+			styleplan.Apply(&styleConfig, plan)
+			if !isCode && plan.TextSizing() {
+				AddHeadingSizeMarkers(&styleConfig)
+			}
+		}
+
+		if err := glamour.WithStyles(styleConfig)(tr); err != nil {
+			return fmt.Errorf("glamour: error applying styles: %w", err)
+		}
+		return nil
+	}
+}
+
+func styleConfigFor(style string, isCode bool) (ansi.StyleConfig, error) {
+	// The TUI path keeps the interactive background probe. CLI rendering goes
+	// through GlamourStyleWithPlan instead, whose planning phase must stay
+	// free of terminal writes.
+	if isCode && style == "auto" {
 		if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
 			style = styles.DarkStyle
 		} else {
 			style = styles.LightStyle
 		}
-	case styles.TokyoNightStyle:
-		style = styles.DraculaStyle
-	case styles.DarkStyle, styles.LightStyle, styles.PinkStyle,
-		styles.NoTTYStyle, styles.DraculaStyle:
-	default:
-		return styleConfigFromFile(style)
 	}
+	return resolveStyleConfig(style, isCode)
+}
 
-	styleConfig := *styles.DefaultStyles[style]
-
-	var margin uint
-	styleConfig.CodeBlock.Margin = &margin
-
-	return styleConfig, nil
+// resolveStyleConfig loads the style config for an already resolved theme
+// without probing the terminal. Default styles are returned as struct copies
+// and code files get their code block margin removed. Nested pointers stay
+// shared with the default styles, so callers must replace pointers instead of
+// mutating their targets, as styleplan.Apply does.
+func resolveStyleConfig(theme string, isCode bool) (ansi.StyleConfig, error) {
+	if theme == "auto" || theme == "" {
+		theme = styles.DarkStyle
+	}
+	if isCode && theme == styles.TokyoNightStyle {
+		theme = styles.DraculaStyle
+	}
+	if cfg, ok := styles.DefaultStyles[theme]; ok {
+		styleConfig := *cfg
+		if isCode {
+			var margin uint
+			styleConfig.CodeBlock.Margin = &margin
+		}
+		return styleConfig, nil
+	}
+	return styleConfigFromFile(theme)
 }
 
 func styleConfigFromFile(path string) (ansi.StyleConfig, error) {

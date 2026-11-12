@@ -17,6 +17,7 @@ import (
 
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/styles"
+	"charm.land/glow/v3/styleplan"
 	"charm.land/glow/v3/ui"
 	"charm.land/glow/v3/utils"
 	"github.com/caarlos0/env/v11"
@@ -289,10 +290,35 @@ func executeCLI(cmd *cobra.Command, src *source, w io.Writer) error {
 
 	isCode := !utils.IsMarkdownFile(src.URL)
 
+	// Plan rendering from the output capabilities without writing to the
+	// terminal or changing the selected theme. The strategy is immutable and
+	// cached by capability version; redirects, narrow terminals and unknown
+	// capabilities are handled inside the planner.
+	renderPlan := styleplan.Plan(
+		styleplan.Detect(w, os.Environ()),
+		styleplan.Request{
+			Theme:          style,
+			ThemeExplicit:  cmd.Flags().Changed("style"),
+			IsCode:         isCode,
+			RequestedWidth: width,
+			WidthExplicit:  cmd.Flags().Changed("width"),
+		},
+	)
+	if degradations := renderPlan.Degradations(); len(degradations) > 0 {
+		log.Debug(
+			"render strategy applied with degradations",
+			"theme", renderPlan.ResolvedTheme(),
+			"color", renderPlan.ColorDepth().String(),
+			"unicode", renderPlan.Unicode().String(),
+			"width", renderPlan.WrapWidth(),
+			"degradations", len(degradations),
+		)
+	}
+
 	// initialize glamour
 	r, err := glamour.NewTermRenderer(
-		utils.GlamourStyle(style, isCode),
-		glamour.WithWordWrap(int(width)), //nolint:gosec
+		utils.GlamourStyleWithPlan(style, isCode, renderPlan),
+		glamour.WithWordWrap(renderPlan.WrapWidth()),
 		glamour.WithBaseURL(baseURL),
 		glamour.WithPreservedNewLines(),
 	)
