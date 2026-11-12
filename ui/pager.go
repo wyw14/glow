@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -53,6 +55,12 @@ type pagerModel struct {
 	// it here so we can re-render it on resize.
 	currentDocument markdown
 
+	// Incremental cache of rendered markdown output. Entries are keyed by
+	// document content, style version and terminal width, so reloads only
+	// re-render changed content while resizes and theme switches fall back
+	// to a safe, fully re-rendered generation.
+	blockCache *blockRenderCache
+
 	watcher *fsnotify.Watcher
 }
 
@@ -61,9 +69,10 @@ func newPagerModel(common *commonModel) pagerModel {
 	vp := viewport.New()
 
 	m := pagerModel{
-		common:   common,
-		state:    pagerStateBrowse,
-		viewport: vp,
+		common:     common,
+		state:      pagerStateBrowse,
+		viewport:   vp,
+		blockCache: newBlockRenderCache(),
 	}
 	m.initWatcher()
 	return m
@@ -124,6 +133,7 @@ func (m *pagerModel) unload() {
 	m.state = pagerStateBrowse
 	m.viewport.SetContent("")
 	m.viewport.SetYOffset(0)
+	m.blockCache.InvalidateAll()
 	m.unwatchFile()
 }
 
@@ -352,8 +362,6 @@ func renderWithGlamour(m pagerModel, md string) tea.Cmd {
 
 // This is where the magic happens.
 func glamourRender(m pagerModel, markdown string) (string, error) {
-	trunc := lipgloss.NewStyle().MaxWidth(m.viewport.Width() - lineNumberWidth).Render
-
 	if !m.common.cfg.GlamourEnabled {
 		return markdown, nil
 	}
@@ -363,6 +371,46 @@ func glamourRender(m pagerModel, markdown string) (string, error) {
 	if isCode {
 		width = 0
 	}
+
+	// Route the render through the incremental cache. Glamour's layout is
+	// document-scoped: block margins collapse across block boundaries and
+	// reference definitions resolve document-wide, so splitting a document
+	// into independently rendered blocks would change the visible output. The
+	// document therefore enters the protocol as one content-addressed render
+	// unit: unchanged reloads are served from cache, while the style-version
+	// and terminal-width components of the key guarantee that theme switches
+	// and resizes always re-render instead of serving stale output.
+	id := "doc:" + blockIDFor(markdown)
+	return m.blockCache.RenderEntry(
+		id,
+		pagerStyleVersion(m.common.cfg, isCode),
+		m.viewport.Width(),
+		func() (string, error) {
+			return glamourRenderUncached(m, markdown, isCode, width)
+		},
+	)
+}
+
+// pagerStyleVersion hashes every configuration input that affects rendered
+// output. Any change in theme or rendering settings yields a new version, so
+// entries produced with the old configuration can never be served again.
+func pagerStyleVersion(cfg Config, isCode bool) string {
+	payload := fmt.Sprintf(
+		"glow-pager-v1\nstyle=%s\nmax-width=%d\npreserve-new-lines=%t\n"+
+			"line-numbers=%t\ncode=%t\ntext-sizing=%t\n",
+		cfg.GlamourStyle,
+		cfg.GlamourMaxWidth,
+		cfg.PreserveNewLines,
+		cfg.ShowLineNumbers,
+		isCode,
+		utils.TextSizingEnabled(),
+	)
+	h := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(h[:16])
+}
+
+func glamourRenderUncached(m pagerModel, markdown string, isCode bool, width int) (string, error) {
+	trunc := lipgloss.NewStyle().MaxWidth(m.viewport.Width() - lineNumberWidth).Render
 
 	options := []glamour.TermRendererOption{
 		utils.GlamourStyle(m.common.cfg.GlamourStyle, isCode),
